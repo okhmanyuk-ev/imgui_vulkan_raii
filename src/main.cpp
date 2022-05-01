@@ -19,13 +19,6 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
 
-// [Win32] Our example includes a copy of glfw3.lib pre-compiled with VS2010 to maximize ease of testing and compatibility with old VS compilers.
-// To link with VS2010-era libraries, VS2015+ requires linking with legacy_stdio_definitions.lib, which we do using this pragma.
-// Your own project should not be affected, as you are likely to link with a newer binary of GLFW that is adequate for your version of Visual Studio.
-#if defined(_MSC_VER) && (_MSC_VER >= 1900) && !defined(IMGUI_DISABLE_WIN32_FUNCTIONS)
-#pragma comment(lib, "legacy_stdio_definitions")
-#endif
-
 static VkAllocationCallbacks* g_Allocator = NULL;
 static vk::Instance g_Instance = VK_NULL_HANDLE;
 static vk::PhysicalDevice g_PhysicalDevice = VK_NULL_HANDLE;
@@ -129,8 +122,6 @@ static void SetupVulkan(const char** extensions, uint32_t extensions_count)
 	g_DescriptorPool = g_Device.createDescriptorPool(descriptor_pool_create_info);
 }
 
-// All the ImGui_ImplVulkanH_XXX structures/functions are optional helpers used by the demo.
-// Your real engine/app may not use them.
 static void SetupVulkanWindow(ImGui_ImplVulkanH_Window* wd, VkSurfaceKHR surface, int width, int height)
 {
 	wd->Surface = surface;
@@ -278,13 +269,9 @@ int main(int, char**)
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-
-	// Setup Dear ImGui style
-	ImGui::StyleColorsDark();
-	//ImGui::StyleColorsClassic();
-
+	
+	ImGui::StyleColorsClassic();
+	
 	// Setup Platform/Renderer backends
 	ImGui_ImplGlfw_InitForVulkan(window, true);
 	ImGui_ImplVulkan_InitInfo init_info = {};
@@ -303,67 +290,40 @@ int main(int, char**)
 	init_info.CheckVkResultFn = check_vk_result;
 	ImGui_ImplVulkan_Init(&init_info, wd->RenderPass);
 
-	// Load Fonts
-	// - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
-	// - AddFontFromFileTTF() will return the ImFont* so you can store it if you need to select the font among multiple.
-	// - If the file cannot be loaded, the function will return NULL. Please handle those errors in your application (e.g. use an assertion, or display an error and quit).
-	// - The fonts will be rasterized at a given size (w/ oversampling) and stored into a texture when calling ImFontAtlas::Build()/GetTexDataAsXXXX(), which ImGui_ImplXXXX_NewFrame below will call.
-	// - Read 'docs/FONTS.md' for more instructions and details.
-	// - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double backslash \\ !
-	//io.Fonts->AddFontDefault();
-	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf", 16.0f);
-	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
-	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);
-	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/ProggyTiny.ttf", 10.0f);
-	//ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f, NULL, io.Fonts->GetGlyphRangesJapanese());
-	//IM_ASSERT(font != NULL);
-
-	// Upload Fonts
 	{
-		// Use any command queue
-		VkCommandPool command_pool = wd->Frames[wd->FrameIndex].CommandPool;
-		VkCommandBuffer command_buffer = wd->Frames[wd->FrameIndex].CommandBuffer;
+		auto command_pool = wd->Frames[wd->FrameIndex].CommandPool;
+		auto command_buffer = wd->Frames[wd->FrameIndex].CommandBuffer;
 
-		err = vkResetCommandPool(g_Device, command_pool, 0);
-		check_vk_result(err);
-		VkCommandBufferBeginInfo begin_info = {};
-		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		begin_info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-		err = vkBeginCommandBuffer(command_buffer, &begin_info);
-		check_vk_result(err);
+		g_Device.resetCommandPool(command_pool);
+
+		auto command_buffer_begin_info = vk::CommandBufferBeginInfo()
+			.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+
+		command_buffer.begin(command_buffer_begin_info);
 
 		ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
 
-		VkSubmitInfo end_info = {};
-		end_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		end_info.commandBufferCount = 1;
-		end_info.pCommandBuffers = &command_buffer;
-		err = vkEndCommandBuffer(command_buffer);
-		check_vk_result(err);
-		err = vkQueueSubmit(g_Queue, 1, &end_info, VK_NULL_HANDLE);
-		check_vk_result(err);
+		command_buffer.end();
 
-		err = vkDeviceWaitIdle(g_Device);
-		check_vk_result(err);
+		auto submit_info = vk::SubmitInfo()
+			.setCommandBufferCount(1)
+			.setPCommandBuffers(&command_buffer);
+
+		g_Queue.submit({ submit_info });
+
+		g_Device.waitIdle();
+
 		ImGui_ImplVulkan_DestroyFontUploadObjects();
 	}
 
-	// Our state
 	bool show_demo_window = true;
 	bool show_another_window = false;
 	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
-	// Main loop
 	while (!glfwWindowShouldClose(window))
 	{
-		// Poll and handle events (inputs, window resize, etc.)
-		// You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
-		// - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
-		// - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
-		// Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
 		glfwPollEvents();
 
-		// Resize swap chain?
 		if (g_SwapChainRebuild)
 		{
 			int width, height;
@@ -377,7 +337,6 @@ int main(int, char**)
 			}
 		}
 
-		// Start the Dear ImGui frame
 		ImGui_ImplVulkan_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();

@@ -1,88 +1,16 @@
-// dear imgui: Renderer Backend for Vulkan
-// This needs to be used along with a Platform Backend (e.g. GLFW, SDL, Win32, custom..)
-
-// Implemented features:
-//  [X] Renderer: Support for large meshes (64k+ vertices) with 16-bit indices.
-//  [!] Renderer: User texture binding. Use 'VkDescriptorSet' as ImTextureID. Read the FAQ about ImTextureID! See https://github.com/ocornut/imgui/pull/914 for discussions.
-
-// Important: on 32-bit systems, user texture binding is only supported if your imconfig file has '#define ImTextureID ImU64'.
-// This is because we need ImTextureID to carry a 64-bit value and by default ImTextureID is defined as void*.
-// To build this on 32-bit systems and support texture changes:
-// - [Solution 1] IDE/msbuild: in "Properties/C++/Preprocessor Definitions" add 'ImTextureID=ImU64' (this is what we do in our .vcxproj files)
-// - [Solution 2] IDE/msbuild: in "Properties/C++/Preprocessor Definitions" add 'IMGUI_USER_CONFIG="my_imgui_config.h"' and inside 'my_imgui_config.h' add '#define ImTextureID ImU64' and as many other options as you like.
-// - [Solution 3] IDE/msbuild: edit imconfig.h and add '#define ImTextureID ImU64' (prefer solution 2 to create your own config file!)
-// - [Solution 4] command-line: add '/D ImTextureID=ImU64' to your cl.exe command-line (this is what we do in our batch files)
-
-// You can use unmodified imgui_impl_* files in your project. See examples/ folder for examples of using this.
-// Prefer including the entire imgui/ repository into your project (either as a copy or as a submodule), and only build the backends you need.
-// If you are new to Dear ImGui, read documentation from the docs/ folder + read the top of imgui.cpp.
-// Read online: https://github.com/ocornut/imgui/tree/master/docs
-
-// The aim of imgui_impl_vulkan.h/.cpp is to be usable in your engine without any modification.
-// IF YOU FEEL YOU NEED TO MAKE ANY CHANGE TO THIS CODE, please share them and your feedback at https://github.com/ocornut/imgui/
-
-// Important note to the reader who wish to integrate imgui_impl_vulkan.cpp/.h in their own engine/app.
-// - Common ImGui_ImplVulkan_XXX functions and structures are used to interface with imgui_impl_vulkan.cpp/.h.
-//   You will use those if you want to use this rendering backend in your engine/app.
-// - Helper ImGui_ImplVulkanH_XXX functions and structures are only used by this example (main.cpp) and by
-//   the backend itself (imgui_impl_vulkan.cpp), but should PROBABLY NOT be used by your own engine/app code.
-// Read comments in imgui_impl_vulkan.h.
-
-// CHANGELOG
-// (minor and older changes stripped away, please see git history for details)
-//  2021-10-15: Vulkan: Call vkCmdSetScissor() at the end of render a full-viewport to reduce likehood of issues with people using VK_DYNAMIC_STATE_SCISSOR in their app without calling vkCmdSetScissor() explicitly every frame.
-//  2021-06-29: Reorganized backend to pull data from a single structure to facilitate usage with multiple-contexts (all g_XXXX access changed to bd->XXXX).
-//  2021-03-22: Vulkan: Fix mapped memory validation error when buffer sizes are not multiple of VkPhysicalDeviceLimits::nonCoherentAtomSize.
-//  2021-02-18: Vulkan: Change blending equation to preserve alpha in output buffer.
-//  2021-01-27: Vulkan: Added support for custom function load and IMGUI_IMPL_VULKAN_NO_PROTOTYPES by using ImGui_ImplVulkan_LoadFunctions().
-//  2020-11-11: Vulkan: Added support for specifying which subpass to reference during VkPipeline creation.
-//  2020-09-07: Vulkan: Added VkPipeline parameter to ImGui_ImplVulkan_RenderDrawData (default to one passed to ImGui_ImplVulkan_Init).
-//  2020-05-04: Vulkan: Fixed crash if initial frame has no vertices.
-//  2020-04-26: Vulkan: Fixed edge case where render callbacks wouldn't be called if the ImDrawData didn't have vertices.
-//  2019-08-01: Vulkan: Added support for specifying multisample count. Set ImGui_ImplVulkan_InitInfo::MSAASamples to one of the VkSampleCountFlagBits values to use, default is non-multisampled as before.
-//  2019-05-29: Vulkan: Added support for large mesh (64K+ vertices), enable ImGuiBackendFlags_RendererHasVtxOffset flag.
-//  2019-04-30: Vulkan: Added support for special ImDrawCallback_ResetRenderState callback to reset render state.
-//  2019-04-04: *BREAKING CHANGE*: Vulkan: Added ImageCount/MinImageCount fields in ImGui_ImplVulkan_InitInfo, required for initialization (was previously a hard #define IMGUI_VK_QUEUED_FRAMES 2). Added ImGui_ImplVulkan_SetMinImageCount().
-//  2019-04-04: Vulkan: Added VkInstance argument to ImGui_ImplVulkanH_CreateWindow() optional helper.
-//  2019-04-04: Vulkan: Avoid passing negative coordinates to vkCmdSetScissor, which debug validation layers do not like.
-//  2019-04-01: Vulkan: Support for 32-bit index buffer (#define ImDrawIdx unsigned int).
-//  2019-02-16: Vulkan: Viewport and clipping rectangles correctly using draw_data->FramebufferScale to allow retina display.
-//  2018-11-30: Misc: Setting up io.BackendRendererName so it can be displayed in the About Window.
-//  2018-08-25: Vulkan: Fixed mishandled VkSurfaceCapabilitiesKHR::maxImageCount=0 case.
-//  2018-06-22: Inverted the parameters to ImGui_ImplVulkan_RenderDrawData() to be consistent with other backends.
-//  2018-06-08: Misc: Extracted imgui_impl_vulkan.cpp/.h away from the old combined GLFW+Vulkan example.
-//  2018-06-08: Vulkan: Use draw_data->DisplayPos and draw_data->DisplaySize to setup projection matrix and clipping rectangle.
-//  2018-03-03: Vulkan: Various refactor, created a couple of ImGui_ImplVulkanH_XXX helper that the example can use and that viewport support will use.
-//  2018-03-01: Vulkan: Renamed ImGui_ImplVulkan_Init_Info to ImGui_ImplVulkan_InitInfo and fields to match more closely Vulkan terminology.
-//  2018-02-16: Misc: Obsoleted the io.RenderDrawListsFn callback, ImGui_ImplVulkan_Render() calls ImGui_ImplVulkan_RenderDrawData() itself.
-//  2018-02-06: Misc: Removed call to ImGui::Shutdown() which is not available from 1.60 WIP, user needs to call CreateContext/DestroyContext themselves.
-//  2017-05-15: Vulkan: Fix scissor offset being negative. Fix new Vulkan validation warnings. Set required depth member for buffer image copy.
-//  2016-11-13: Vulkan: Fix validation layer warnings and errors and redeclare gl_PerVertex.
-//  2016-10-18: Vulkan: Add location decorators & change to use structs as in/out in glsl, update embedded spv (produced with glslangValidator -x). Null the released resources.
-//  2016-08-27: Vulkan: Fix Vulkan example for use when a depth buffer is active.
-
 #include "imgui_impl_vulkan.h"
 #include <stdio.h>
 
-// Visual Studio warnings
-#ifdef _MSC_VER
-#pragma warning (disable: 4127) // condition expression is constant
-#endif
-
-// Reusable buffers used for rendering 1 current in-flight frame, for ImGui_ImplVulkan_RenderDrawData()
-// [Please zero-clear before use!]
 struct ImGui_ImplVulkanH_FrameRenderBuffers
 {
-	VkDeviceMemory      VertexBufferMemory;
-	VkDeviceMemory      IndexBufferMemory;
-	VkDeviceSize        VertexBufferSize;
-	VkDeviceSize        IndexBufferSize;
-	VkBuffer            VertexBuffer;
-	VkBuffer            IndexBuffer;
+	VkDeviceMemory VertexBufferMemory;
+	VkDeviceMemory IndexBufferMemory;
+	VkDeviceSize VertexBufferSize;
+	VkDeviceSize IndexBufferSize;
+	vk::Buffer VertexBuffer;
+	vk::Buffer IndexBuffer;
 };
 
-// Each viewport will hold 1 ImGui_ImplVulkanH_WindowRenderBuffers
-// [Please zero-clear before use!]
 struct ImGui_ImplVulkanH_WindowRenderBuffers
 {
 	uint32_t            Index;
@@ -90,7 +18,6 @@ struct ImGui_ImplVulkanH_WindowRenderBuffers
 	ImGui_ImplVulkanH_FrameRenderBuffers*   FrameRenderBuffers;
 };
 
-// Vulkan data
 struct ImGui_ImplVulkan_Data
 {
 	ImGui_ImplVulkan_InitInfo   VulkanInitInfo;
@@ -276,24 +203,24 @@ static void check_vk_result(VkResult err)
 		v->CheckVkResultFn(err);
 }
 
-static void CreateOrResizeBuffer(VkBuffer& buffer, VkDeviceMemory& buffer_memory, VkDeviceSize& p_buffer_size, size_t new_size, VkBufferUsageFlagBits usage)
+static void CreateOrResizeBuffer(vk::Buffer& buffer, VkDeviceMemory& buffer_memory, VkDeviceSize& p_buffer_size, size_t new_size, vk::BufferUsageFlagBits usage)
 {
 	ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
 	ImGui_ImplVulkan_InitInfo* v = &bd->VulkanInitInfo;
 	VkResult err;
-	if (buffer != VK_NULL_HANDLE)
+	if (buffer)
 		vkDestroyBuffer(v->Device, buffer, v->Allocator);
 	if (buffer_memory != VK_NULL_HANDLE)
 		vkFreeMemory(v->Device, buffer_memory, v->Allocator);
 
-	VkDeviceSize vertex_buffer_size_aligned = ((new_size - 1) / bd->BufferMemoryAlignment + 1) * bd->BufferMemoryAlignment;
-	VkBufferCreateInfo buffer_info = {};
-	buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	buffer_info.size = vertex_buffer_size_aligned;
-	buffer_info.usage = usage;
-	buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	err = vkCreateBuffer(v->Device, &buffer_info, v->Allocator, &buffer);
-	check_vk_result(err);
+	vk::DeviceSize vertex_buffer_size_aligned = ((new_size - 1) / bd->BufferMemoryAlignment + 1) * bd->BufferMemoryAlignment;
+	
+	auto buffer_create_info = vk::BufferCreateInfo()
+		.setSize(vertex_buffer_size_aligned)
+		.setUsage(usage)
+		.setSharingMode(vk::SharingMode::eExclusive);
+
+	buffer = v->Device.createBuffer(buffer_create_info);
 
 	VkMemoryRequirements req;
 	vkGetBufferMemoryRequirements(v->Device, buffer, &req);
@@ -310,48 +237,38 @@ static void CreateOrResizeBuffer(VkBuffer& buffer, VkDeviceMemory& buffer_memory
 	p_buffer_size = req.size;
 }
 
-static void ImGui_ImplVulkan_SetupRenderState(ImDrawData* draw_data, VkPipeline pipeline, VkCommandBuffer command_buffer, ImGui_ImplVulkanH_FrameRenderBuffers* rb, int fb_width, int fb_height)
+static void ImGui_ImplVulkan_SetupRenderState(ImDrawData* draw_data, VkPipeline pipeline, vk::CommandBuffer command_buffer, ImGui_ImplVulkanH_FrameRenderBuffers* rb, int fb_width, int fb_height)
 {
-	ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
+	auto bd = ImGui_ImplVulkan_GetBackendData();
 
-	// Bind pipeline:
-	{
-		vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-	}
+	command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
 
-	// Bind Vertex And Index Buffer:
 	if (draw_data->TotalVtxCount > 0)
 	{
-		VkBuffer vertex_buffers[1] = { rb->VertexBuffer };
-		VkDeviceSize vertex_offset[1] = { 0 };
-		vkCmdBindVertexBuffers(command_buffer, 0, 1, vertex_buffers, vertex_offset);
-		vkCmdBindIndexBuffer(command_buffer, rb->IndexBuffer, 0, sizeof(ImDrawIdx) == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
+		command_buffer.bindVertexBuffers(0, { rb->VertexBuffer }, { 0 });
+		command_buffer.bindIndexBuffer(rb->IndexBuffer, 0, sizeof(ImDrawIdx) == 2 ? vk::IndexType::eUint16 : vk::IndexType::eUint32);
 	}
 
-	// Setup viewport:
-	{
-		VkViewport viewport;
-		viewport.x = 0;
-		viewport.y = 0;
-		viewport.width = (float)fb_width;
-		viewport.height = (float)fb_height;
-		viewport.minDepth = 0.0f;
-		viewport.maxDepth = 1.0f;
-		vkCmdSetViewport(command_buffer, 0, 1, &viewport);
-	}
+	auto viewport = vk::Viewport()
+		.setX(0)
+		.setY(0)
+		.setWidth((float)fb_width)
+		.setHeight((float)fb_height)
+		.setMinDepth(0.0f)
+		.setMaxDepth(1.0f);
 
-	// Setup scale and translation:
-	// Our visible imgui space lies from draw_data->DisplayPps (top left) to draw_data->DisplayPos+data_data->DisplaySize (bottom right). DisplayPos is (0,0) for single viewport apps.
-	{
-		float scale[2];
-		scale[0] = 2.0f / draw_data->DisplaySize.x;
-		scale[1] = 2.0f / draw_data->DisplaySize.y;
-		float translate[2];
-		translate[0] = -1.0f - draw_data->DisplayPos.x * scale[0];
-		translate[1] = -1.0f - draw_data->DisplayPos.y * scale[1];
-		vkCmdPushConstants(command_buffer, bd->PipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, sizeof(float) * 0, sizeof(float) * 2, scale);
-		vkCmdPushConstants(command_buffer, bd->PipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, sizeof(float) * 2, sizeof(float) * 2, translate);
-	}
+	command_buffer.setViewport(0, { viewport });
+
+	float scale[2];
+	scale[0] = 2.0f / draw_data->DisplaySize.x;
+	scale[1] = 2.0f / draw_data->DisplaySize.y;
+	command_buffer.pushConstants(bd->PipelineLayout, vk::ShaderStageFlagBits::eVertex, sizeof(float) * 0, sizeof(float) * 2, scale);
+	
+	float translate[2];
+	translate[0] = -1.0f - draw_data->DisplayPos.x * scale[0];
+	translate[1] = -1.0f - draw_data->DisplayPos.y * scale[1];
+	vkCmdPushConstants(command_buffer, bd->PipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, sizeof(float) * 2, sizeof(float) * 2, translate);
+	
 }
 
 // Render function
@@ -386,10 +303,10 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comm
 		// Create or resize the vertex/index buffers
 		size_t vertex_size = draw_data->TotalVtxCount * sizeof(ImDrawVert);
 		size_t index_size = draw_data->TotalIdxCount * sizeof(ImDrawIdx);
-		if (rb->VertexBuffer == VK_NULL_HANDLE || rb->VertexBufferSize < vertex_size)
-			CreateOrResizeBuffer(rb->VertexBuffer, rb->VertexBufferMemory, rb->VertexBufferSize, vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-		if (rb->IndexBuffer == VK_NULL_HANDLE || rb->IndexBufferSize < index_size)
-			CreateOrResizeBuffer(rb->IndexBuffer, rb->IndexBufferMemory, rb->IndexBufferSize, index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+		if (!rb->VertexBuffer || rb->VertexBufferSize < vertex_size)
+			CreateOrResizeBuffer(rb->VertexBuffer, rb->VertexBufferMemory, rb->VertexBufferSize, vertex_size, vk::BufferUsageFlagBits::eVertexBuffer);
+		if (!rb->IndexBuffer || rb->IndexBufferSize < index_size)
+			CreateOrResizeBuffer(rb->IndexBuffer, rb->IndexBufferMemory, rb->IndexBufferSize, index_size, vk::BufferUsageFlagBits::eIndexBuffer);
 
 		// Upload vertex/index data into a single contiguous GPU buffer
 		ImDrawVert* vtx_dst = NULL;
@@ -940,9 +857,8 @@ bool    ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info, VkRenderPass rend
 	io.BackendRendererName = "imgui_impl_vulkan";
 	io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
 
-	IM_ASSERT(info->Instance != VK_NULL_HANDLE);
 	IM_ASSERT(info->PhysicalDevice != VK_NULL_HANDLE);
-	IM_ASSERT(info->Device != VK_NULL_HANDLE);
+	IM_ASSERT(info->Device);
 	IM_ASSERT(info->Queue != VK_NULL_HANDLE);
 	IM_ASSERT(info->DescriptorPool != VK_NULL_HANDLE);
 	IM_ASSERT(info->MinImageCount >= 2);
@@ -1146,11 +1062,10 @@ int ImGui_ImplVulkanH_GetMinImageCountFromPresentMode(vk::PresentModeKHR present
 // Also destroy old swap chain and in-flight frames data, if any.
 void ImGui_ImplVulkanH_CreateWindowSwapChain(vk::PhysicalDevice physical_device, vk::Device device, ImGui_ImplVulkanH_Window* wd, const VkAllocationCallbacks* allocator, int w, int h, uint32_t min_image_count)
 {
-	VkResult err;
 	auto old_swapchain = wd->Swapchain;
 	wd->Swapchain = VK_NULL_HANDLE;
-	err = vkDeviceWaitIdle(device);
-	check_vk_result(err);
+
+	device.waitIdle();
 
 	// We don't use ImGui_ImplVulkanH_DestroyWindow() because we want to preserve the old swapchain to create the new one.
 	// Destroy old Framebuffer
@@ -1209,24 +1124,20 @@ void ImGui_ImplVulkanH_CreateWindowSwapChain(vk::PhysicalDevice physical_device,
 		
 		wd->Swapchain = device.createSwapchainKHR(swapchain_create_info);
 		
-		err = vkGetSwapchainImagesKHR(device, wd->Swapchain, &wd->ImageCount, NULL);
-		check_vk_result(err);
-		VkImage backbuffers[16] = {};
-		IM_ASSERT(wd->ImageCount >= min_image_count);
-		IM_ASSERT(wd->ImageCount < IM_ARRAYSIZE(backbuffers));
-		err = vkGetSwapchainImagesKHR(device, wd->Swapchain, &wd->ImageCount, backbuffers);
-		check_vk_result(err);
-
+		auto backbuffers = device.getSwapchainImagesKHR(wd->Swapchain);
+		wd->ImageCount = (uint32_t)backbuffers.size();
+		
 		IM_ASSERT(wd->Frames == NULL);
 		wd->Frames = (ImGui_ImplVulkanH_Frame*)IM_ALLOC(sizeof(ImGui_ImplVulkanH_Frame) * wd->ImageCount);
 		wd->FrameSemaphores = (ImGui_ImplVulkanH_FrameSemaphores*)IM_ALLOC(sizeof(ImGui_ImplVulkanH_FrameSemaphores) * wd->ImageCount);
 		memset(wd->Frames, 0, sizeof(wd->Frames[0]) * wd->ImageCount);
 		memset(wd->FrameSemaphores, 0, sizeof(wd->FrameSemaphores[0]) * wd->ImageCount);
+		
 		for (uint32_t i = 0; i < wd->ImageCount; i++)
 			wd->Frames[i].Backbuffer = backbuffers[i];
 	}
 	if (old_swapchain)
-		vkDestroySwapchainKHR(device, old_swapchain, allocator);
+		device.destroySwapchainKHR(old_swapchain);
 
 	auto attachment_description = vk::AttachmentDescription()
 		.setFormat(wd->SurfaceFormat.format)
@@ -1292,23 +1203,19 @@ void ImGui_ImplVulkanH_CreateWindowSwapChain(vk::PhysicalDevice physical_device,
 		fd->BackbufferView = device.createImageView(image_view_create_info);
 	}
 	
+	for (uint32_t i = 0; i < wd->ImageCount; i++)
 	{
-		VkImageView attachment[1];
-		VkFramebufferCreateInfo info = {};
-		info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-		info.renderPass = wd->RenderPass;
-		info.attachmentCount = 1;
-		info.pAttachments = attachment;
-		info.width = wd->Width;
-		info.height = wd->Height;
-		info.layers = 1;
-		for (uint32_t i = 0; i < wd->ImageCount; i++)
-		{
-			ImGui_ImplVulkanH_Frame* fd = &wd->Frames[i];
-			attachment[0] = fd->BackbufferView;
-			err = vkCreateFramebuffer(device, &info, allocator, &fd->Framebuffer);
-			check_vk_result(err);
-		}
+		auto fd = &wd->Frames[i];
+
+		auto framebuffer_create_info = vk::FramebufferCreateInfo()
+			.setRenderPass(wd->RenderPass)
+			.setAttachmentCount(1)
+			.setPAttachments(&fd->BackbufferView)
+			.setWidth(wd->Width)
+			.setHeight(wd->Height)
+			.setLayers(1);
+
+		fd->Framebuffer = device.createFramebuffer(framebuffer_create_info);
 	}
 }
 
