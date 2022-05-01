@@ -123,7 +123,7 @@ static void SetupVulkan(const char** extensions, uint32_t extensions_count)
 		
 	auto descriptor_pool_create_info = vk::DescriptorPoolCreateInfo()
 		.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-		.setMaxSets(1000 * pool_sizes.size())
+		.setMaxSets(uint32_t(1000 * pool_sizes.size()))
 		.setPoolSizes(pool_sizes);
 
 	g_DescriptorPool = g_Device.createDescriptorPool(descriptor_pool_create_info);
@@ -139,8 +139,8 @@ static void SetupVulkanWindow(ImGui_ImplVulkanH_Window* wd, VkSurfaceKHR surface
 	const VkColorSpaceKHR requestSurfaceColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
 	wd->SurfaceFormat = ImGui_ImplVulkanH_SelectSurfaceFormat(g_PhysicalDevice, wd->Surface, requestSurfaceImageFormat, (size_t)IM_ARRAYSIZE(requestSurfaceImageFormat), requestSurfaceColorSpace);
 
-	VkPresentModeKHR present_modes[] = { VK_PRESENT_MODE_FIFO_KHR };
-	wd->PresentMode = ImGui_ImplVulkanH_SelectPresentMode(g_PhysicalDevice, wd->Surface, &present_modes[0], IM_ARRAYSIZE(present_modes));
+	auto present_modes = { vk::PresentModeKHR::eFifo };
+	wd->PresentMode = ImGui_ImplVulkanH_SelectPresentMode(g_PhysicalDevice, wd->Surface, present_modes);
 	
 	IM_ASSERT(g_MinImageCount >= 2);
 	ImGui_ImplVulkanH_CreateOrResizeWindow(g_Instance, g_PhysicalDevice, g_Device, wd, g_QueueFamily, g_Allocator, width, height, g_MinImageCount);
@@ -160,12 +160,18 @@ static void CleanupVulkanWindow()
 
 static void FrameRender(ImGui_ImplVulkanH_Window* wd, ImDrawData* draw_data)
 {
-	VkResult err;
-
 	auto image_acquired_semaphore = wd->FrameSemaphores[wd->SemaphoreIndex].ImageAcquiredSemaphore;
 	auto render_complete_semaphore = wd->FrameSemaphores[wd->SemaphoreIndex].RenderCompleteSemaphore;
 
-	wd->FrameIndex = g_Device.acquireNextImageKHR(wd->Swapchain, UINT64_MAX, image_acquired_semaphore);
+	auto result = g_Device.acquireNextImageKHR(wd->Swapchain, UINT64_MAX, image_acquired_semaphore);
+
+	if (result.result == vk::Result::eErrorOutOfDateKHR || result.result == vk::Result::eSuboptimalKHR)
+	{
+		g_SwapChainRebuild = true;
+		return;
+	}
+
+	wd->FrameIndex = result.value;
 
 	auto fd = &wd->Frames[wd->FrameIndex];
 	
@@ -179,83 +185,57 @@ static void FrameRender(ImGui_ImplVulkanH_Window* wd, ImDrawData* draw_data)
 
 	fd->CommandBuffer.begin(command_buffer_begin_info);
 	
-	{
-		VkRenderPassBeginInfo info = {};
-		info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		info.renderPass = wd->RenderPass;
-		info.framebuffer = fd->Framebuffer;
-		info.renderArea.extent.width = wd->Width;
-		info.renderArea.extent.height = wd->Height;
-		info.clearValueCount = 1;
-		info.pClearValues = &wd->ClearValue;
+	auto render_pass_begin_info = vk::RenderPassBeginInfo()
+		.setRenderPass(wd->RenderPass)
+		.setFramebuffer(fd->Framebuffer)
+		.setRenderArea({ { 0, 0 }, { wd->Width, wd->Height } })
+		.setClearValueCount(1)
+		.setPClearValues(&wd->ClearValue);
 
-		/*auto info = vk::RenderPassBeginInfo()
-			.setRenderPass(wd->RenderPass)
-			.setFramebuffer(fd->Framebuffer)
-			.setRenderArea({ { 0, 0 }, { wd->Width, wd->Height } })
-			.setClearValueCount(1)
-			.setPClearValues(&wd->ClearValue);*/
-
-		vkCmdBeginRenderPass(fd->CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
-	}
-
-	// Record dear imgui primitives into command buffer
+	fd->CommandBuffer.beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
+	
 	ImGui_ImplVulkan_RenderDrawData(draw_data, fd->CommandBuffer);
 
-	// Submit command buffer
-	vkCmdEndRenderPass(fd->CommandBuffer);
-
+	fd->CommandBuffer.endRenderPass();
 	fd->CommandBuffer.end();
-	{
-		/*VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		VkSubmitInfo info = {};
-		info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		info.waitSemaphoreCount = 1;
-		info.pWaitSemaphores = &image_acquired_semaphore;
-		info.pWaitDstStageMask = &wait_stage;
-		info.commandBufferCount = 1;
-		info.pCommandBuffers = &fd->CommandBuffer;
-		info.signalSemaphoreCount = 1;
-		info.pSignalSemaphores = &render_complete_semaphore;
+	
+	vk::PipelineStageFlags wait_dst_stage_mask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
 
-		err = vkQueueSubmit(g_Queue, 1, &info, fd->Fence);
-		check_vk_result(err);*/
+	auto submit_info = vk::SubmitInfo()
+		.setWaitSemaphoreCount(1)
+		.setPWaitSemaphores(&image_acquired_semaphore)
+		.setPWaitDstStageMask(&wait_dst_stage_mask)
+		.setCommandBufferCount(1)
+		.setPCommandBuffers(&fd->CommandBuffer)
+		.setSignalSemaphoreCount(1)
+		.setPSignalSemaphores(&render_complete_semaphore);
 
-		vk::PipelineStageFlags wait_dst_stage_mask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-
-		auto submit_info = vk::SubmitInfo()
-			.setWaitSemaphoreCount(1)
-			.setPWaitSemaphores(&image_acquired_semaphore)
-			.setPWaitDstStageMask(&wait_dst_stage_mask)
-			.setCommandBufferCount(1)
-			.setPCommandBuffers(&fd->CommandBuffer)
-			.setSignalSemaphoreCount(1)
-			.setPSignalSemaphores(&render_complete_semaphore);
-
-		g_Queue.submit(1, &submit_info, fd->Fence);
-	}
+	g_Queue.submit(1, &submit_info, fd->Fence);
 }
 
 static void FramePresent(ImGui_ImplVulkanH_Window* wd)
 {
 	if (g_SwapChainRebuild)
 		return;
-	VkSemaphore render_complete_semaphore = wd->FrameSemaphores[wd->SemaphoreIndex].RenderCompleteSemaphore;
-	VkPresentInfoKHR info = {};
-	info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-	info.waitSemaphoreCount = 1;
-	info.pWaitSemaphores = &render_complete_semaphore;
-	info.swapchainCount = 1;
-	info.pSwapchains = &wd->Swapchain;
-	info.pImageIndices = &wd->FrameIndex;
-	VkResult err = vkQueuePresentKHR(g_Queue, &info);
-	if (err == VK_ERROR_OUT_OF_DATE_KHR || err == VK_SUBOPTIMAL_KHR)
+	
+	auto render_complete_semaphore = wd->FrameSemaphores[wd->SemaphoreIndex].RenderCompleteSemaphore;
+
+	auto present_info = vk::PresentInfoKHR()
+		.setWaitSemaphoreCount(1)
+		.setPWaitSemaphores(&render_complete_semaphore)
+		.setSwapchainCount(1)
+		.setPSwapchains(&wd->Swapchain)
+		.setPImageIndices(&wd->FrameIndex);
+
+	auto result = g_Queue.presentKHR(present_info); // TODO: crash when resizing
+	
+	if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR)
 	{
 		g_SwapChainRebuild = true;
 		return;
 	}
-	check_vk_result(err);
-	wd->SemaphoreIndex = (wd->SemaphoreIndex + 1) % wd->ImageCount; // Now we can use the next set of semaphores
+
+	wd->SemaphoreIndex = (wd->SemaphoreIndex + 1) % wd->ImageCount;
 }
 
 static void glfw_error_callback(int error, const char* description)
