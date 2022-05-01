@@ -34,7 +34,7 @@ static uint32_t g_QueueFamily = (uint32_t)-1;
 static VkQueue g_Queue = VK_NULL_HANDLE;
 static VkDebugReportCallbackEXT g_DebugReport = VK_NULL_HANDLE;
 static VkPipelineCache g_PipelineCache = VK_NULL_HANDLE;
-static VkDescriptorPool g_DescriptorPool = VK_NULL_HANDLE;
+static vk::DescriptorPool g_DescriptorPool = VK_NULL_HANDLE;
 
 static ImGui_ImplVulkanH_Window g_MainWindowData;
 static int g_MinImageCount = 2;
@@ -64,82 +64,71 @@ static void SetupVulkan(const char** extensions, uint32_t extensions_count)
 
 	g_Instance = vk::createInstance(instance_create_info);
 
-	// Select GPU
+	auto gpus = g_Instance.enumeratePhysicalDevices();
+	int use_gpu = 0;
+	for (int i = 0; i < (int)gpus.size(); i++)
 	{
-		auto gpus = g_Instance.enumeratePhysicalDevices();
-		int use_gpu = 0;
-		for (int i = 0; i < (int)gpus.size(); i++)
+		auto properties = gpus[i].getProperties();			
+		if (properties.deviceType == vk::PhysicalDeviceType::eDiscreteGpu)
 		{
-			auto properties = gpus[i].getProperties();			
-			if (properties.deviceType == vk::PhysicalDeviceType::eDiscreteGpu)
-			{
-				use_gpu = i;
-				break;
-			}
+			use_gpu = i;
+			break;
 		}
-
-		g_PhysicalDevice = gpus.at(use_gpu);
 	}
 
-	// Select graphics queue family
-	{
-		auto queues = g_PhysicalDevice.getQueueFamilyProperties();
-
-		for (uint32_t i = 0; i < queues.size(); i++)
-			if (queues[i].queueFlags & vk::QueueFlagBits::eGraphics)
-			{
-				g_QueueFamily = i;
-				break;
-			}
+	g_PhysicalDevice = gpus.at(use_gpu);
 	
-		IM_ASSERT(g_QueueFamily != (uint32_t)-1);
-	}
+	auto queues = g_PhysicalDevice.getQueueFamilyProperties();
 
+	for (uint32_t i = 0; i < queues.size(); i++)
 	{
-		auto extensions = { 
-			VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-		};
-
-		auto queue_priority = { 1.0f };
-
-		auto device_queue_create_info = vk::DeviceQueueCreateInfo()
-			.setQueueFamilyIndex(g_QueueFamily)
-			.setQueuePriorities(queue_priority);
-
-		auto device_create_info = vk::DeviceCreateInfo()
-			.setQueueCreateInfoCount(1)
-			.setPQueueCreateInfos(&device_queue_create_info)
-			.setPEnabledExtensionNames(extensions);
-		
-		g_Device = g_PhysicalDevice.createDevice(device_create_info);
-		g_Queue = g_Device.getQueue(g_QueueFamily, 0);
-	}
-
-	// Create Descriptor Pool
-	{
-		VkDescriptorPoolSize pool_sizes[] =
+		if (queues[i].queueFlags & vk::QueueFlagBits::eGraphics)
 		{
-			{ VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
-			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
-			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
-			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
-		};
-		VkDescriptorPoolCreateInfo pool_info = {};
-		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-		pool_info.maxSets = 1000 * IM_ARRAYSIZE(pool_sizes);
-		pool_info.poolSizeCount = (uint32_t)IM_ARRAYSIZE(pool_sizes);
-		pool_info.pPoolSizes = pool_sizes;
-		err = vkCreateDescriptorPool(g_Device, &pool_info, g_Allocator, &g_DescriptorPool);
-		check_vk_result(err);
+			g_QueueFamily = i;
+			break;
+		}
 	}
+	
+	IM_ASSERT(g_QueueFamily != (uint32_t)-1);
+	
+	auto device_extensions = { 
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+	};
+
+	auto queue_priority = { 1.0f };
+
+	auto device_queue_create_info = vk::DeviceQueueCreateInfo()
+		.setQueueFamilyIndex(g_QueueFamily)
+		.setQueuePriorities(queue_priority);
+
+	auto device_create_info = vk::DeviceCreateInfo()
+		.setQueueCreateInfoCount(1)
+		.setPQueueCreateInfos(&device_queue_create_info)
+		.setPEnabledExtensionNames(device_extensions);
+		
+	g_Device = g_PhysicalDevice.createDevice(device_create_info);
+	g_Queue = g_Device.getQueue(g_QueueFamily, 0);
+	
+	std::vector<vk::DescriptorPoolSize> pool_sizes = {
+		{ vk::DescriptorType::eSampler, 1000 },
+		{ vk::DescriptorType::eCombinedImageSampler, 1000 },
+		{ vk::DescriptorType::eSampledImage, 1000 },
+		{ vk::DescriptorType::eStorageImage, 1000 },
+		{ vk::DescriptorType::eUniformTexelBuffer, 1000 },
+		{ vk::DescriptorType::eStorageTexelBuffer, 1000 },
+		{ vk::DescriptorType::eUniformBuffer, 1000 },
+		{ vk::DescriptorType::eStorageBuffer, 1000 },
+		{ vk::DescriptorType::eUniformBufferDynamic, 1000 },
+		{ vk::DescriptorType::eStorageBufferDynamic, 1000 },
+		{ vk::DescriptorType::eInputAttachment, 1000 }
+	};
+		
+	auto descriptor_pool_create_info = vk::DescriptorPoolCreateInfo()
+		.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
+		.setMaxSets(1000 * pool_sizes.size())
+		.setPoolSizes(pool_sizes);
+
+	g_DescriptorPool = g_Device.createDescriptorPool(descriptor_pool_create_info);
 }
 
 // All the ImGui_ImplVulkanH_XXX structures/functions are optional helpers used by the demo.
