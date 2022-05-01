@@ -42,7 +42,7 @@
 #if defined(IMGUI_IMPL_VULKAN_NO_PROTOTYPES) && !defined(VK_NO_PROTOTYPES)
 #define VK_NO_PROTOTYPES
 #endif
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_raii.hpp>
 
 // Initialization data, for ImGui_ImplVulkan_Init()
 // [Please zero-clear before use!]
@@ -111,12 +111,12 @@ IMGUI_IMPL_API int                  ImGui_ImplVulkanH_GetMinImageCountFromPresen
 // [Please zero-clear before use!]
 struct ImGui_ImplVulkanH_Frame
 {
-    VkCommandPool       CommandPool;
-    VkCommandBuffer     CommandBuffer;
-    VkFence             Fence;
-    VkImage             Backbuffer;
-    VkImageView         BackbufferView;
-    VkFramebuffer       Framebuffer;
+    VkCommandPool CommandPool;
+    VkCommandBuffer CommandBuffer;
+    VkFence Fence;
+    VkImage Backbuffer;
+    VkImageView BackbufferView;
+    VkFramebuffer Framebuffer;
 };
 
 struct ImGui_ImplVulkanH_FrameSemaphores
@@ -125,25 +125,23 @@ struct ImGui_ImplVulkanH_FrameSemaphores
     VkSemaphore         RenderCompleteSemaphore;
 };
 
-// Helper structure to hold the data needed by one rendering context into one OS window
-// (Used by example's main.cpp. Used by multi-viewport features. Probably NOT used by your own engine/app.)
 struct ImGui_ImplVulkanH_Window
 {
-    int                 Width;
-    int                 Height;
-    VkSwapchainKHR      Swapchain;
-    VkSurfaceKHR        Surface;
-    VkSurfaceFormatKHR  SurfaceFormat;
-    VkPresentModeKHR    PresentMode;
-    VkRenderPass        RenderPass;
-    VkPipeline          Pipeline;               // The window pipeline may uses a different VkRenderPass than the one passed in ImGui_ImplVulkan_InitInfo
-    bool                ClearEnable;
-    VkClearValue        ClearValue;
-    uint32_t            FrameIndex;             // Current frame being rendered to (0 <= FrameIndex < FrameInFlightCount)
-    uint32_t            ImageCount;             // Number of simultaneous in-flight frames (returned by vkGetSwapchainImagesKHR, usually derived from min_image_count)
-    uint32_t            SemaphoreIndex;         // Current set of swapchain wait semaphores we're using (needs to be distinct from per frame data)
-    ImGui_ImplVulkanH_Frame*            Frames;
-    ImGui_ImplVulkanH_FrameSemaphores*  FrameSemaphores;
+    uint32_t Width;
+    uint32_t Height;
+    VkSwapchainKHR Swapchain;
+    VkSurfaceKHR Surface;
+    VkSurfaceFormatKHR SurfaceFormat;
+    VkPresentModeKHR PresentMode;
+    VkRenderPass RenderPass;
+    VkPipeline Pipeline;
+    bool ClearEnable;
+    VkClearValue ClearValue;
+    uint32_t FrameIndex;
+    uint32_t ImageCount;
+    uint32_t SemaphoreIndex;
+    ImGui_ImplVulkanH_Frame* Frames;
+    ImGui_ImplVulkanH_FrameSemaphores* FrameSemaphores;
 
     ImGui_ImplVulkanH_Window()
     {
