@@ -76,10 +76,6 @@ IMGUI_IMPL_API void         ImGui_ImplVulkan_SetMinImageCount(uint32_t min_image
 // FIXME: This is experimental in the sense that we are unsure how to best design/tackle this problem, please post to https://github.com/ocornut/imgui/pull/914 if you have suggestions.
 IMGUI_IMPL_API VkDescriptorSet ImGui_ImplVulkan_AddTexture(VkSampler sampler, VkImageView image_view, VkImageLayout image_layout);
 
-// Optional: load Vulkan functions with a custom function loader
-// This is only useful with IMGUI_IMPL_VULKAN_NO_PROTOTYPES / VK_NO_PROTOTYPES
-IMGUI_IMPL_API bool         ImGui_ImplVulkan_LoadFunctions(PFN_vkVoidFunction(*loader_func)(const char* function_name, void* user_data), void* user_data = NULL);
-
 //-------------------------------------------------------------------------
 // Internal / Miscellaneous Vulkan Helpers
 // (Used by example's main.cpp. Used by multi-viewport features. PROBABLY NOT used by your own engine/app.)
@@ -111,9 +107,9 @@ IMGUI_IMPL_API int                  ImGui_ImplVulkanH_GetMinImageCountFromPresen
 // [Please zero-clear before use!]
 struct ImGui_ImplVulkanH_Frame
 {
-    VkCommandPool CommandPool;
-    VkCommandBuffer CommandBuffer;
-    VkFence Fence;
+    vk::CommandPool CommandPool;
+    vk::CommandBuffer CommandBuffer;
+    vk::Fence Fence;
     VkImage Backbuffer;
     VkImageView BackbufferView;
     VkFramebuffer Framebuffer;
@@ -121,8 +117,8 @@ struct ImGui_ImplVulkanH_Frame
 
 struct ImGui_ImplVulkanH_FrameSemaphores
 {
-    VkSemaphore         ImageAcquiredSemaphore;
-    VkSemaphore         RenderCompleteSemaphore;
+    vk::Semaphore ImageAcquiredSemaphore;
+    vk::Semaphore RenderCompleteSemaphore;
 };
 
 struct ImGui_ImplVulkanH_Window
