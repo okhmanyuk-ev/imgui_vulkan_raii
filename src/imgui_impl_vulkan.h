@@ -58,17 +58,9 @@ struct ImGui_ImplVulkanH_Window
 	vk::PresentModeKHR PresentMode;
 	vk::RenderPass RenderPass;
 	vk::Pipeline Pipeline;
-	bool ClearEnable;
 	vk::ClearValue ClearValue;
 	uint32_t FrameIndex;
-	//uint32_t ImageCount;
 	uint32_t SemaphoreIndex;
 	std::vector<ImGui_ImplVulkanH_Frame> Frames;
-
-	ImGui_ImplVulkanH_Window()
-	{
-		memset((void*)this, 0, sizeof(*this));
-		ClearEnable = true;
-	}
 };
 

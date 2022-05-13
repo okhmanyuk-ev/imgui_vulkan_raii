@@ -896,7 +896,7 @@ bool    ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info, vk::RenderPass re
 	auto& io = ImGui::GetIO();
 	IM_ASSERT(io.BackendRendererUserData == NULL && "Already initialized a renderer backend!");
 
-	auto bd = IM_NEW(ImGui_ImplVulkan_Data)();
+	auto bd = new ImGui_ImplVulkan_Data();
 	io.BackendRendererUserData = (void*)bd;
 	io.BackendRendererName = "imgui_impl_vulkan";
 	io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
@@ -1167,7 +1167,7 @@ void ImGui_ImplVulkanH_CreateWindowSwapChain(vk::PhysicalDevice physical_device,
 	auto attachment_description = vk::AttachmentDescription()
 		.setFormat(wd.SurfaceFormat.format)
 		.setSamples(vk::SampleCountFlagBits::e1)
-		.setLoadOp(wd.ClearEnable ? vk::AttachmentLoadOp::eClear : vk::AttachmentLoadOp::eDontCare)
+		.setLoadOp(vk::AttachmentLoadOp::eClear)
 		.setStoreOp(vk::AttachmentStoreOp::eStore)
 		.setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
 		.setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
