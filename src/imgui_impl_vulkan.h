@@ -23,8 +23,8 @@ struct ImGui_ImplVulkan_InitInfo
 IMGUI_IMPL_API bool ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info);
 IMGUI_IMPL_API void ImGui_ImplVulkan_Shutdown();
 IMGUI_IMPL_API void ImGui_ImplVulkan_NewFrame();
-IMGUI_IMPL_API void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, vk::CommandBuffer command_buffer);
-IMGUI_IMPL_API bool ImGui_ImplVulkan_CreateFontsTexture(vk::CommandBuffer command_buffer);
+IMGUI_IMPL_API void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, vk::raii::CommandBuffer& command_buffer);
+IMGUI_IMPL_API bool ImGui_ImplVulkan_CreateFontsTexture(vk::raii::CommandBuffer& command_buffer);
 IMGUI_IMPL_API void ImGui_ImplVulkan_SetMinImageCount(uint32_t min_image_count);
 
 IMGUI_IMPL_API vk::raii::DescriptorSet ImGui_ImplVulkan_AddTexture(vk::Sampler sampler, vk::ImageView image_view, vk::ImageLayout image_layout);

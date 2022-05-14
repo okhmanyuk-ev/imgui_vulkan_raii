@@ -166,7 +166,7 @@ static void FrameRender(ImGui_ImplVulkanH_Window& wd, ImDrawData* draw_data)
 
 	fd.CommandBuffer.beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
 	
-	ImGui_ImplVulkan_RenderDrawData(draw_data, *fd.CommandBuffer);
+	ImGui_ImplVulkan_RenderDrawData(draw_data, fd.CommandBuffer);
 
 	fd.CommandBuffer.endRenderPass();
 	fd.CommandBuffer.end();
@@ -271,7 +271,7 @@ int main(int, char**)
 
 		command_buffer.begin(command_buffer_begin_info);
 
-		ImGui_ImplVulkan_CreateFontsTexture(*command_buffer);
+		ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
 
 		command_buffer.end();
 

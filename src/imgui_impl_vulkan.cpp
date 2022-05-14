@@ -214,7 +214,7 @@ static void CreateOrResizeBuffer(vk::raii::Buffer& buffer, vk::raii::DeviceMemor
 	p_buffer_size = req.size;
 }
 
-static void ImGui_ImplVulkan_SetupRenderState(ImDrawData* draw_data, vk::Pipeline pipeline, vk::CommandBuffer command_buffer, ImGui_ImplVulkanH_FrameRenderBuffers* rb, int fb_width, int fb_height)
+static void ImGui_ImplVulkan_SetupRenderState(ImDrawData* draw_data, vk::Pipeline pipeline, vk::raii::CommandBuffer& command_buffer, ImGui_ImplVulkanH_FrameRenderBuffers* rb, int fb_width, int fb_height)
 {
 	auto bd = ImGui_ImplVulkan_GetBackendData();
 
@@ -239,15 +239,15 @@ static void ImGui_ImplVulkan_SetupRenderState(ImDrawData* draw_data, vk::Pipelin
 	float scale[2];
 	scale[0] = 2.0f / draw_data->DisplaySize.x;
 	scale[1] = 2.0f / draw_data->DisplaySize.y;
-	command_buffer.pushConstants(*bd->PipelineLayout, vk::ShaderStageFlagBits::eVertex, sizeof(float) * 0, sizeof(float) * 2, scale);
+	(*command_buffer).pushConstants(*bd->PipelineLayout, vk::ShaderStageFlagBits::eVertex, sizeof(float) * 0, sizeof(float) * 2, scale);
 	
 	float translate[2];
 	translate[0] = -1.0f - draw_data->DisplayPos.x * scale[0];
 	translate[1] = -1.0f - draw_data->DisplayPos.y * scale[1];
-	command_buffer.pushConstants(*bd->PipelineLayout, vk::ShaderStageFlagBits::eVertex, sizeof(float) * 2, sizeof(float) * 2, translate);
+	(*command_buffer).pushConstants(*bd->PipelineLayout, vk::ShaderStageFlagBits::eVertex, sizeof(float) * 2, sizeof(float) * 2, translate);
 }
 
-void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, vk::CommandBuffer command_buffer)
+void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, vk::raii::CommandBuffer& command_buffer)
 {
 	int fb_width = (int)(draw_data->DisplaySize.x * draw_data->FramebufferScale.x);
 	int fb_height = (int)(draw_data->DisplaySize.y * draw_data->FramebufferScale.y);
@@ -389,7 +389,7 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, vk::CommandBuffer co
 	command_buffer.setScissor(0, { scissor });
 }
 
-bool ImGui_ImplVulkan_CreateFontsTexture(vk::CommandBuffer command_buffer)
+bool ImGui_ImplVulkan_CreateFontsTexture(vk::raii::CommandBuffer& command_buffer)
 {
 	auto& io = ImGui::GetIO();
 	auto bd = ImGui_ImplVulkan_GetBackendData();
