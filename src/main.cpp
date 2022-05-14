@@ -19,14 +19,6 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
 
-static vk::Instance g_Instance;
-static vk::PhysicalDevice g_PhysicalDevice;
-static vk::Device g_Device;
-static uint32_t g_QueueFamily = (uint32_t)-1;
-static vk::Queue g_Queue;
-static vk::PipelineCache g_PipelineCache;
-static vk::DescriptorPool g_DescriptorPool;
-
 static ImGui_ImplVulkanH_Window g_MainWindowData;
 static int g_MinImageCount = 2;
 static bool g_SwapChainRebuild = false;
@@ -42,8 +34,8 @@ static void SetupVulkan(const char** extensions, uint32_t extensions_count)
 		.setPpEnabledExtensionNames(extensions)
 		.setPEnabledLayerNames(layers);
 
-	g_Instance = vk::createInstance(instance_create_info);
-
+	g_Instance = gContext.createInstance(instance_create_info);
+	
 	auto gpus = g_Instance.enumeratePhysicalDevices();
 	int use_gpu = 0;
 	for (int i = 0; i < (int)gpus.size(); i++)
@@ -56,7 +48,7 @@ static void SetupVulkan(const char** extensions, uint32_t extensions_count)
 		}
 	}
 
-	g_PhysicalDevice = gpus.at(use_gpu);
+	g_PhysicalDevice = std::move(gpus.at(use_gpu));
 	
 	auto queues = g_PhysicalDevice.getQueueFamilyProperties();
 
@@ -113,7 +105,7 @@ static void SetupVulkan(const char** extensions, uint32_t extensions_count)
 
 static void SetupVulkanWindow(ImGui_ImplVulkanH_Window& wd, vk::SurfaceKHR surface, int width, int height)
 {
-	wd.Surface = surface;
+	wd.Surface = vk::raii::SurfaceKHR(g_Instance, surface);
 
 	auto requestSurfaceImageFormat = { 
 		vk::Format::eB8G8R8A8Unorm,
@@ -124,47 +116,41 @@ static void SetupVulkanWindow(ImGui_ImplVulkanH_Window& wd, vk::SurfaceKHR surfa
 
 	auto requestSurfaceColorSpace = vk::ColorSpaceKHR::eSrgbNonlinear;
 	
-	wd.SurfaceFormat = ImGui_ImplVulkanH_SelectSurfaceFormat(g_PhysicalDevice, wd.Surface, requestSurfaceImageFormat, requestSurfaceColorSpace);
+	wd.SurfaceFormat = ImGui_ImplVulkanH_SelectSurfaceFormat(*g_PhysicalDevice, *wd.Surface, requestSurfaceImageFormat, requestSurfaceColorSpace);
 
 	auto present_modes = { vk::PresentModeKHR::eFifo };
-	wd.PresentMode = ImGui_ImplVulkanH_SelectPresentMode(g_PhysicalDevice, wd.Surface, present_modes);
+	wd.PresentMode = ImGui_ImplVulkanH_SelectPresentMode(*g_PhysicalDevice, *wd.Surface, present_modes);
 	
 	IM_ASSERT(g_MinImageCount >= 2);
-	ImGui_ImplVulkanH_CreateOrResizeWindow(g_Instance, g_PhysicalDevice, g_Device, wd, g_QueueFamily, width, height, g_MinImageCount);
-}
-
-static void CleanupVulkan()
-{
-	g_Device.destroy(g_DescriptorPool);
-	g_Device.destroy();
-	g_Instance.destroy();
+	ImGui_ImplVulkanH_CreateOrResizeWindow(*g_Instance, *g_PhysicalDevice, g_Device, wd, g_QueueFamily, width, height, g_MinImageCount);
 }
 
 static void CleanupVulkanWindow()
 {
-	ImGui_ImplVulkanH_DestroyWindow(g_Instance, g_Device, g_MainWindowData);
+	ImGui_ImplVulkanH_DestroyWindow(*g_Instance, *g_Device, g_MainWindowData);
 }
 
 static void FrameRender(ImGui_ImplVulkanH_Window& wd, ImDrawData* draw_data)
 {
-	auto image_acquired_semaphore = wd.Frames[wd.SemaphoreIndex].ImageAcquiredSemaphore;
-	auto render_complete_semaphore = wd.Frames[wd.SemaphoreIndex].RenderCompleteSemaphore;
+	auto& image_acquired_semaphore = wd.Frames[wd.SemaphoreIndex].ImageAcquiredSemaphore;
+	auto& render_complete_semaphore = wd.Frames[wd.SemaphoreIndex].RenderCompleteSemaphore;
 
-	auto result = g_Device.acquireNextImageKHR(wd.Swapchain, UINT64_MAX, image_acquired_semaphore);
+	auto [result, frame_index] = wd.Swapchain.acquireNextImage(UINT64_MAX, *image_acquired_semaphore);
 
-	if (result.result == vk::Result::eErrorOutOfDateKHR || result.result == vk::Result::eSuboptimalKHR)
+	if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR)
 	{
 		g_SwapChainRebuild = true;
 		return;
 	}
 
-	wd.FrameIndex = result.value;
+	wd.FrameIndex = frame_index;
 
 	auto& fd = wd.Frames[wd.FrameIndex];
 	
-	g_Device.waitForFences(1, &fd.Fence, true, UINT64_MAX);
-	g_Device.resetFences(1, &fd.Fence);
-	g_Device.resetCommandPool(fd.CommandPool);
+	g_Device.waitForFences({ *fd.Fence }, true, UINT64_MAX);
+	g_Device.resetFences({ *fd.Fence });
+	
+	fd.CommandPool.reset();
 	
 	auto command_buffer_begin_info = vk::CommandBufferBeginInfo()
 		.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
@@ -172,15 +158,15 @@ static void FrameRender(ImGui_ImplVulkanH_Window& wd, ImDrawData* draw_data)
 	fd.CommandBuffer.begin(command_buffer_begin_info);
 	
 	auto render_pass_begin_info = vk::RenderPassBeginInfo()
-		.setRenderPass(wd.RenderPass)
-		.setFramebuffer(fd.Framebuffer)
+		.setRenderPass(*g_RenderPass)
+		.setFramebuffer(*fd.Framebuffer)
 		.setRenderArea({ { 0, 0 }, { wd.Width, wd.Height } })
 		.setClearValueCount(1)
 		.setPClearValues(&wd.ClearValue);
 
 	fd.CommandBuffer.beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
 	
-	ImGui_ImplVulkan_RenderDrawData(draw_data, fd.CommandBuffer);
+	ImGui_ImplVulkan_RenderDrawData(draw_data, *fd.CommandBuffer);
 
 	fd.CommandBuffer.endRenderPass();
 	fd.CommandBuffer.end();
@@ -189,14 +175,14 @@ static void FrameRender(ImGui_ImplVulkanH_Window& wd, ImDrawData* draw_data)
 
 	auto submit_info = vk::SubmitInfo()
 		.setWaitSemaphoreCount(1)
-		.setPWaitSemaphores(&image_acquired_semaphore)
+		.setPWaitSemaphores(&*image_acquired_semaphore)
 		.setPWaitDstStageMask(&wait_dst_stage_mask)
 		.setCommandBufferCount(1)
-		.setPCommandBuffers(&fd.CommandBuffer)
+		.setPCommandBuffers(&*fd.CommandBuffer)
 		.setSignalSemaphoreCount(1)
-		.setPSignalSemaphores(&render_complete_semaphore);
+		.setPSignalSemaphores(&*render_complete_semaphore);
 
-	g_Queue.submit(1, &submit_info, fd.Fence);
+	g_Queue.submit({ submit_info }, *fd.Fence);
 }
 
 static void FramePresent(ImGui_ImplVulkanH_Window& wd)
@@ -204,13 +190,13 @@ static void FramePresent(ImGui_ImplVulkanH_Window& wd)
 	if (g_SwapChainRebuild)
 		return;
 	
-	auto render_complete_semaphore = wd.Frames[wd.SemaphoreIndex].RenderCompleteSemaphore;
+	auto& render_complete_semaphore = wd.Frames[wd.SemaphoreIndex].RenderCompleteSemaphore;
 
 	auto present_info = vk::PresentInfoKHR()
 		.setWaitSemaphoreCount(1)
-		.setPWaitSemaphores(&render_complete_semaphore)
+		.setPWaitSemaphores(&*render_complete_semaphore)
 		.setSwapchainCount(1)
-		.setPSwapchains(&wd.Swapchain)
+		.setPSwapchains(&*wd.Swapchain)
 		.setPImageIndices(&wd.FrameIndex);
 
 	auto result = g_Queue.presentKHR(present_info); // TODO: crash when resizing
@@ -251,7 +237,7 @@ int main(int, char**)
 
 	// Create Window Surface
 	VkSurfaceKHR surface;
-	glfwCreateWindowSurface(g_Instance, window, nullptr, &surface);
+	glfwCreateWindowSurface(*g_Instance, window, nullptr, &surface);
 	
 	// Create Framebuffers
 	int w, h;
@@ -269,42 +255,33 @@ int main(int, char**)
 	// Setup Platform/Renderer backends
 	ImGui_ImplGlfw_InitForVulkan(window, true);
 	ImGui_ImplVulkan_InitInfo init_info = {};
-	init_info.Instance = g_Instance;
-	init_info.PhysicalDevice = g_PhysicalDevice;
-	init_info.Device = g_Device;
-	init_info.QueueFamily = g_QueueFamily;
-	init_info.Queue = g_Queue;
-	init_info.PipelineCache = g_PipelineCache;
-	init_info.DescriptorPool = g_DescriptorPool;
 	init_info.Subpass = 0;
 	init_info.MinImageCount = g_MinImageCount;
 	init_info.ImageCount = (uint32_t)wd.Frames.size();
-	ImGui_ImplVulkan_Init(&init_info, wd.RenderPass);
+	ImGui_ImplVulkan_Init(&init_info);
 
 	{
-		auto command_pool = wd.Frames[wd.FrameIndex].CommandPool;
-		auto command_buffer = wd.Frames[wd.FrameIndex].CommandBuffer;
+		auto& command_pool = wd.Frames[wd.FrameIndex].CommandPool;
+		auto& command_buffer = wd.Frames[wd.FrameIndex].CommandBuffer;
 
-		g_Device.resetCommandPool(command_pool);
+		command_pool.reset();
 
 		auto command_buffer_begin_info = vk::CommandBufferBeginInfo()
 			.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 
 		command_buffer.begin(command_buffer_begin_info);
 
-		ImGui_ImplVulkan_CreateFontsTexture(command_buffer);
+		ImGui_ImplVulkan_CreateFontsTexture(*command_buffer);
 
 		command_buffer.end();
 
 		auto submit_info = vk::SubmitInfo()
 			.setCommandBufferCount(1)
-			.setPCommandBuffers(&command_buffer);
+			.setPCommandBuffers(&*command_buffer);
 
 		g_Queue.submit({ submit_info });
 
 		g_Device.waitIdle();
-
-		ImGui_ImplVulkan_DestroyFontUploadObjects();
 	}
 
 	bool show_demo_window = true;
@@ -322,7 +299,7 @@ int main(int, char**)
 			if (width > 0 && height > 0)
 			{
 				ImGui_ImplVulkan_SetMinImageCount(g_MinImageCount);
-				ImGui_ImplVulkanH_CreateOrResizeWindow(g_Instance, g_PhysicalDevice, g_Device, g_MainWindowData, g_QueueFamily, width, height, g_MinImageCount);
+				ImGui_ImplVulkanH_CreateOrResizeWindow(*g_Instance, *g_PhysicalDevice, g_Device, g_MainWindowData, g_QueueFamily, width, height, g_MinImageCount);
 				g_MainWindowData.FrameIndex = 0;
 				g_SwapChainRebuild = false;
 			}
@@ -391,8 +368,7 @@ int main(int, char**)
 	ImGui::DestroyContext();
 
 	CleanupVulkanWindow();
-	CleanupVulkan();
-
+	
 	glfwDestroyWindow(window);
 	glfwTerminate();
 
