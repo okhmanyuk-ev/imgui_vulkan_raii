@@ -28,11 +28,15 @@ static void SetupVulkan(const char** extensions, uint32_t extensions_count)
 	auto layers = {
 		"VK_LAYER_KHRONOS_validation"
 	};
-		
+
+	auto application_info = vk::ApplicationInfo()
+		.setApiVersion(VK_API_VERSION_1_3);
+
 	auto instance_create_info = vk::InstanceCreateInfo()
 		.setEnabledExtensionCount(extensions_count)
 		.setPpEnabledExtensionNames(extensions)
-		.setPEnabledLayerNames(layers);
+		.setPEnabledLayerNames(layers)
+		.setPApplicationInfo(&application_info);
 
 	g_Instance = gContext.createInstance(instance_create_info);
 	
@@ -73,10 +77,14 @@ static void SetupVulkan(const char** extensions, uint32_t extensions_count)
 		.setQueueFamilyIndex(g_QueueFamily)
 		.setQueuePriorities(queue_priority);
 
+	auto device_features = g_PhysicalDevice.getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features>();
+
 	auto device_create_info = vk::DeviceCreateInfo()
 		.setQueueCreateInfoCount(1)
 		.setPQueueCreateInfos(&device_queue_create_info)
-		.setPEnabledExtensionNames(device_extensions);
+		.setPEnabledExtensionNames(device_extensions)
+		.setPEnabledFeatures(nullptr)
+		.setPNext(&device_features);
 		
 	g_Device = g_PhysicalDevice.createDevice(device_create_info);
 	g_Queue = g_Device.getQueue(g_QueueFamily, 0);

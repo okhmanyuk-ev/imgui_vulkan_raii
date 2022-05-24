@@ -308,6 +308,11 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, vk::raii::CommandBuf
 		rb->IndexBufferMemory.unmapMemory();
 	}
 
+	command_buffer.setPrimitiveTopology(vk::PrimitiveTopology::eTriangleList);
+	command_buffer.setCullMode(vk::CullModeFlagBits::eNone);
+	command_buffer.setFrontFace(vk::FrontFace::eCounterClockwise);
+	command_buffer.setLineWidth(1.0f);
+
 	ImGui_ImplVulkan_SetupRenderState(draw_data, pipeline, command_buffer, rb, fb_width, fb_height);
 
 	auto clip_off = draw_data->DisplayPos;
@@ -659,18 +664,12 @@ static void ImGui_ImplVulkan_CreatePipeline(vk::raii::Device& device, const vk::
 		.setPVertexBindingDescriptions(&vertex_input_binding_description)
 		.setVertexAttributeDescriptions(vertex_input_attribute_descriptions);
 
-	auto pipeline_input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo() 
-		.setTopology(vk::PrimitiveTopology::eTriangleList); // TODO: can be dynamic state
+	auto pipeline_input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo();
 
-	auto pipeline_viewport_state_create_info = vk::PipelineViewportStateCreateInfo()
-		.setViewportCount(1)
-		.setScissorCount(1);
+	auto pipeline_viewport_state_create_info = vk::PipelineViewportStateCreateInfo();
 
 	auto pipeline_rasterization_state_create_info = vk::PipelineRasterizationStateCreateInfo()
-		.setPolygonMode(vk::PolygonMode::eFill)
-		.setCullMode(vk::CullModeFlagBits::eNone)
-		.setFrontFace(vk::FrontFace::eCounterClockwise)
-		.setLineWidth(1.0f);
+		.setPolygonMode(vk::PolygonMode::eFill);
 	
 	auto pipeline_multisample_state_create_info = vk::PipelineMultisampleStateCreateInfo()
 		.setRasterizationSamples(vk::SampleCountFlagBits::e1);
@@ -694,7 +693,11 @@ static void ImGui_ImplVulkan_CreatePipeline(vk::raii::Device& device, const vk::
 
 	auto dynamic_states = { 
 		vk::DynamicState::eViewport,
-		vk::DynamicState::eScissor
+		vk::DynamicState::eScissor,
+		vk::DynamicState::ePrimitiveTopology,
+		vk::DynamicState::eLineWidth,
+		vk::DynamicState::eCullMode,
+		vk::DynamicState::eFrontFace
 	};
 
 	auto pipeline_dynamic_state_create_info = vk::PipelineDynamicStateCreateInfo()
