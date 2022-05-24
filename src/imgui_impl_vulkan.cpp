@@ -664,9 +664,12 @@ static void ImGui_ImplVulkan_CreatePipeline(vk::raii::Device& device, const vk::
 		.setPVertexBindingDescriptions(&vertex_input_binding_description)
 		.setVertexAttributeDescriptions(vertex_input_attribute_descriptions);
 
-	auto pipeline_input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo();
+	auto pipeline_input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo()
+		.setTopology(vk::PrimitiveTopology::eTriangleList);
 
-	auto pipeline_viewport_state_create_info = vk::PipelineViewportStateCreateInfo();
+	auto pipeline_viewport_state_create_info = vk::PipelineViewportStateCreateInfo()
+		.setViewportCount(1)
+		.setScissorCount(1);
 
 	auto pipeline_rasterization_state_create_info = vk::PipelineRasterizationStateCreateInfo()
 		.setPolygonMode(vk::PolygonMode::eFill);
