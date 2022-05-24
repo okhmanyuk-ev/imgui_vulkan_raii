@@ -234,7 +234,7 @@ static void ImGui_ImplVulkan_SetupRenderState(ImDrawData* draw_data, vk::Pipelin
 		.setMinDepth(0.0f)
 		.setMaxDepth(1.0f);
 
-	command_buffer.setViewport(0, { viewport });
+	command_buffer.setViewportWithCount({ viewport });
 
 	float scale[2];
 	scale[0] = 2.0f / draw_data->DisplaySize.x;
@@ -360,7 +360,7 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, vk::raii::CommandBuf
 					.setOffset({ (int32_t)clip_min.x, (int32_t)clip_min.y })
 					.setExtent({ (uint32_t)(clip_max.x - clip_min.x), (uint32_t)(clip_max.y - clip_min.y) });
 
-				command_buffer.setScissor(0, { scissor });
+				command_buffer.setScissorWithCount({ scissor });
 
 				auto desc_set = (vk::DescriptorSet)(VkDescriptorSet)pcmd->TextureId;
 
@@ -391,7 +391,7 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, vk::raii::CommandBuf
 		.setOffset({ 0, 0 })
 		.setExtent({ (uint32_t)fb_width, (uint32_t)fb_height });
 
-	command_buffer.setScissor(0, { scissor });
+	command_buffer.setScissorWithCount({ scissor });
 }
 
 bool ImGui_ImplVulkan_CreateFontsTexture(vk::raii::CommandBuffer& command_buffer)
@@ -667,10 +667,7 @@ static void ImGui_ImplVulkan_CreatePipeline(vk::raii::Device& device, const vk::
 	auto pipeline_input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo()
 		.setTopology(vk::PrimitiveTopology::eTriangleList);
 
-	auto pipeline_viewport_state_create_info = vk::PipelineViewportStateCreateInfo()
-		.setViewportCount(1)
-		.setScissorCount(1);
-
+	auto pipeline_viewport_state_create_info = vk::PipelineViewportStateCreateInfo();
 	auto pipeline_rasterization_state_create_info = vk::PipelineRasterizationStateCreateInfo()
 		.setPolygonMode(vk::PolygonMode::eFill);
 	
@@ -694,9 +691,9 @@ static void ImGui_ImplVulkan_CreatePipeline(vk::raii::Device& device, const vk::
 		.setAttachmentCount(1)
 		.setPAttachments(&pipeline_color_blent_attachment_state);
 
-	auto dynamic_states = { 
-		vk::DynamicState::eViewport,
-		vk::DynamicState::eScissor,
+	auto dynamic_states = {
+		vk::DynamicState::eViewportWithCount,
+		vk::DynamicState::eScissorWithCount,
 		vk::DynamicState::ePrimitiveTopology,
 		vk::DynamicState::eLineWidth,
 		vk::DynamicState::eCullMode,
