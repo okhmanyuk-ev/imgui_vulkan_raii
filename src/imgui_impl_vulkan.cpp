@@ -301,8 +301,8 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, vk::raii::CommandBuf
 		if (rb->IndexBufferSize < index_size)
 			CreateOrResizeBuffer(rb->IndexBuffer, rb->IndexBufferMemory, rb->IndexBufferSize, index_size, vk::BufferUsageFlagBits::eIndexBuffer);
 
-		auto vtx_dst = (ImDrawVert*)(*g_Device).mapMemory(*rb->VertexBufferMemory, 0, rb->VertexBufferSize);
-		auto idx_dst = (ImDrawIdx*)(*g_Device).mapMemory(*rb->IndexBufferMemory, 0, rb->IndexBufferSize);
+		auto vtx_dst = (ImDrawVert*)rb->VertexBufferMemory.mapMemory(0, rb->VertexBufferSize);
+		auto idx_dst = (ImDrawIdx*)rb->IndexBufferMemory.mapMemory(0, rb->IndexBufferSize);
 
 		for (int n = 0; n < draw_data->CmdListsCount; n++)
 		{
