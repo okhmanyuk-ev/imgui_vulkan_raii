@@ -19,7 +19,6 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
 
-static ImGui_ImplVulkanH_Window g_MainWindowData;
 static int g_MinImageCount = 2;
 static bool g_SwapChainRebuild = false;
 
@@ -164,19 +163,25 @@ static void FrameRender(ImGui_ImplVulkanH_Window& wd, ImDrawData* draw_data)
 		.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 
 	fd.CommandBuffer.begin(command_buffer_begin_info);
-	
-	auto render_pass_begin_info = vk::RenderPassBeginInfo()
-		.setRenderPass(*g_RenderPass)
-		.setFramebuffer(*fd.Framebuffer)
-		.setRenderArea({ { 0, 0 }, { wd.Width, wd.Height } })
-		.setClearValueCount(1)
-		.setPClearValues(&wd.ClearValue);
 
-	fd.CommandBuffer.beginRenderPass(render_pass_begin_info, vk::SubpassContents::eInline);
+	auto color_attachment = vk::RenderingAttachmentInfo()
+		.setImageView(*fd.BackbufferView)
+		.setImageLayout(vk::ImageLayout::eAttachmentOptimal)
+		.setLoadOp(vk::AttachmentLoadOp::eClear)
+		.setStoreOp(vk::AttachmentStoreOp::eStore)
+		.setClearValue(wd.ClearValue);
+
+	auto rendering_info = vk::RenderingInfo()
+		.setRenderArea({ { 0, 0 }, { wd.Width, wd.Height } })
+		.setLayerCount(1)
+		.setColorAttachmentCount(1)
+		.setPColorAttachments(&color_attachment);
+
+	fd.CommandBuffer.beginRendering(rendering_info);
 	
 	ImGui_ImplVulkan_RenderDrawData(draw_data, fd.CommandBuffer);
 
-	fd.CommandBuffer.endRenderPass();
+	fd.CommandBuffer.endRendering();
 	fd.CommandBuffer.end();
 	
 	vk::PipelineStageFlags wait_dst_stage_mask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
@@ -263,7 +268,6 @@ int main(int, char**)
 	// Setup Platform/Renderer backends
 	ImGui_ImplGlfw_InitForVulkan(window, true);
 	ImGui_ImplVulkan_InitInfo init_info = {};
-	init_info.Subpass = 0;
 	init_info.MinImageCount = g_MinImageCount;
 	init_info.ImageCount = (uint32_t)wd.Frames.size();
 	ImGui_ImplVulkan_Init(&init_info);

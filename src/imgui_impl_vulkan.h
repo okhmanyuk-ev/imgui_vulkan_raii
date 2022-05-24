@@ -11,11 +11,9 @@ inline uint32_t g_QueueFamily = (uint32_t)-1;
 inline vk::raii::Queue g_Queue = nullptr;
 inline vk::raii::PipelineCache g_PipelineCache = nullptr;
 inline vk::raii::DescriptorPool g_DescriptorPool = nullptr;
-inline vk::raii::RenderPass g_RenderPass = nullptr;
 
 struct ImGui_ImplVulkan_InitInfo
 {
-	uint32_t Subpass;
 	uint32_t MinImageCount;
 	uint32_t ImageCount;
 };
@@ -45,7 +43,6 @@ struct ImGui_ImplVulkanH_Frame
 	vk::raii::Fence Fence = nullptr;
 	vk::Image Backbuffer;
 	vk::raii::ImageView BackbufferView = nullptr;
-	vk::raii::Framebuffer Framebuffer = nullptr;
 	vk::raii::Semaphore ImageAcquiredSemaphore = nullptr;
 	vk::raii::Semaphore RenderCompleteSemaphore = nullptr;
 };
@@ -64,3 +61,4 @@ struct ImGui_ImplVulkanH_Window
 	std::vector<ImGui_ImplVulkanH_Frame> Frames;
 };
 
+inline ImGui_ImplVulkanH_Window g_MainWindowData;

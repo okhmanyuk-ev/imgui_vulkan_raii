@@ -25,7 +25,6 @@ struct ImGui_ImplVulkan_Data
 	vk::raii::DescriptorSetLayout DescriptorSetLayout = nullptr;
 	vk::raii::PipelineLayout PipelineLayout = nullptr;
 	vk::raii::Pipeline Pipeline = nullptr;
-	uint32_t Subpass;
 	vk::raii::ShaderModule ShaderModuleVert = nullptr;
 	vk::raii::ShaderModule ShaderModuleFrag = nullptr;
 
@@ -54,6 +53,26 @@ void ImGui_ImplVulkan_DestroyDeviceObjects();
 void ImGui_ImplVulkanH_DestroyWindowRenderBuffers(vk::Device device, ImGui_ImplVulkanH_WindowRenderBuffers& buffers);
 void ImGui_ImplVulkanH_CreateWindowSwapChain(vk::PhysicalDevice physical_device, vk::raii::Device& device, ImGui_ImplVulkanH_Window& wd, int w, int h, uint32_t min_image_count);
 void ImGui_ImplVulkanH_CreateWindowCommandBuffers(vk::PhysicalDevice physical_device, vk::raii::Device& device, ImGui_ImplVulkanH_Window& wd, uint32_t queue_family);
+void SetImageLayout(vk::raii::CommandBuffer const& commandBuffer, vk::Image image,
+	vk::Format format, vk::ImageLayout oldImageLayout, vk::ImageLayout newImageLayout);
+
+template <typename Func>
+void oneTimeSubmit(vk::raii::CommandBuffer const& commandBuffer, vk::raii::Queue const& queue, Func const& func)
+{
+	commandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+	func(commandBuffer);
+	commandBuffer.end();
+	vk::SubmitInfo submitInfo(nullptr, nullptr, *commandBuffer);
+	queue.submit(submitInfo, nullptr);
+	queue.waitIdle();
+}
+
+template <typename Func>
+void oneTimeSubmit(vk::raii::Device const& device, vk::raii::CommandPool const& commandPool, vk::raii::Queue const& queue, Func const& func)
+{
+	vk::raii::CommandBuffers commandBuffers(device, { *commandPool, vk::CommandBufferLevel::ePrimary, 1 });
+	oneTimeSubmit(commandBuffers.front(), queue, func);
+}
 
 //-----------------------------------------------------------------------------
 // SHADERS
@@ -483,22 +502,8 @@ bool ImGui_ImplVulkan_CreateFontsTexture(vk::raii::CommandBuffer& command_buffer
 	}
 
 	{
-		auto copy_image_subresource_range = vk::ImageSubresourceRange()
-			.setAspectMask(vk::ImageAspectFlagBits::eColor)
-			.setLevelCount(1)
-			.setLayerCount(1);
-
-		auto copy_image_memory_barrier= vk::ImageMemoryBarrier()
-			.setDstAccessMask(vk::AccessFlagBits::eTransferWrite)
-			.setOldLayout(vk::ImageLayout::eUndefined)
-			.setNewLayout(vk::ImageLayout::eTransferDstOptimal)
-			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setImage(*bd->FontImage)
-			.setSubresourceRange(copy_image_subresource_range);
-
-		command_buffer.pipelineBarrier(vk::PipelineStageFlagBits::eHost, vk::PipelineStageFlagBits::eTransfer, 
-			{}, {}, {}, { copy_image_memory_barrier });
+		SetImageLayout(command_buffer, *bd->FontImage, vk::Format::eUndefined, vk::ImageLayout::eUndefined,
+			vk::ImageLayout::eTransferDstOptimal);
 
 		auto image_subresource_layers = vk::ImageSubresourceLayers()
 			.setAspectMask(vk::ImageAspectFlagBits::eColor)
@@ -510,23 +515,8 @@ bool ImGui_ImplVulkan_CreateFontsTexture(vk::raii::CommandBuffer& command_buffer
 
 		command_buffer.copyBufferToImage(*bd->UploadBuffer, *bd->FontImage, vk::ImageLayout::eTransferDstOptimal, { region });
 
-		auto use_image_subresource_range = vk::ImageSubresourceRange()
-			.setAspectMask(vk::ImageAspectFlagBits::eColor)
-			.setLevelCount(1)
-			.setLayerCount(1);
-
-		auto use_image_memory_barrier = vk::ImageMemoryBarrier()
-			.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-			.setDstAccessMask(vk::AccessFlagBits::eShaderRead)
-			.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-			.setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setImage(*bd->FontImage)
-			.setSubresourceRange(use_image_subresource_range);
-
-		command_buffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, 
-			{}, {}, {}, { use_image_memory_barrier });
+		SetImageLayout(command_buffer, *bd->FontImage, vk::Format::eUndefined, vk::ImageLayout::eTransferDstOptimal,
+			vk::ImageLayout::eShaderReadOnlyOptimal);
 	}
 
 	io.Fonts->SetTexID((ImTextureID)*bd->FontDescriptorSet);
@@ -617,7 +607,7 @@ static void ImGui_ImplVulkan_CreatePipelineLayout(vk::raii::Device& device)
 	bd->PipelineLayout = device.createPipelineLayout(pipeline_layout_create_info);
 }
 
-static void ImGui_ImplVulkan_CreatePipeline(vk::raii::Device& device, const vk::raii::PipelineCache& pipelineCache, vk::raii::RenderPass& renderPass, vk::raii::Pipeline& pipeline, uint32_t subpass)
+static void ImGui_ImplVulkan_CreatePipeline(vk::raii::Device& device, const vk::raii::PipelineCache& pipelineCache, vk::raii::Pipeline& pipeline)
 {
 	auto bd = ImGui_ImplVulkan_GetBackendData();
 	ImGui_ImplVulkan_CreateShaderModules(device);
@@ -704,7 +694,11 @@ static void ImGui_ImplVulkan_CreatePipeline(vk::raii::Device& device, const vk::
 		.setDynamicStates(dynamic_states);
 
 	ImGui_ImplVulkan_CreatePipelineLayout(device);
-	
+
+	auto pipeline_rendering_create_info = vk::PipelineRenderingCreateInfo()
+		.setColorAttachmentCount(1)
+		.setColorAttachmentFormats(g_MainWindowData.SurfaceFormat.format);
+
 	auto graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo()
 		.setFlags(bd->PipelineCreateFlags)
 		.setStages(pipeline_shader_stage_create_info)
@@ -717,8 +711,8 @@ static void ImGui_ImplVulkan_CreatePipeline(vk::raii::Device& device, const vk::
 		.setPColorBlendState(&pipeline_color_blend_state_create_info)
 		.setPDynamicState(&pipeline_dynamic_state_create_info)
 		.setLayout(*bd->PipelineLayout)
-		.setRenderPass(*renderPass)
-		.setSubpass(subpass);
+		.setRenderPass(nullptr)
+		.setPNext(&pipeline_rendering_create_info);
 
 	pipeline = device.createGraphicsPipeline(pipelineCache, graphics_pipeline_create_info);
 }
@@ -773,7 +767,7 @@ bool ImGui_ImplVulkan_CreateDeviceObjects()
 		bd->PipelineLayout = g_Device.createPipelineLayout(pipeline_layout_create_info);
 	}
 
-	ImGui_ImplVulkan_CreatePipeline(g_Device, g_PipelineCache, g_RenderPass, bd->Pipeline, bd->Subpass);
+	ImGui_ImplVulkan_CreatePipeline(g_Device, g_PipelineCache, bd->Pipeline);
 
 	return true;
 }
@@ -800,8 +794,7 @@ bool ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info)
 	IM_ASSERT(info->ImageCount >= info->MinImageCount);
 
 	bd->VulkanInitInfo = *info;
-	bd->Subpass = info->Subpass;
-
+	
 	ImGui_ImplVulkan_CreateDeviceObjects();
 
 	return true;
@@ -1034,43 +1027,6 @@ void ImGui_ImplVulkanH_CreateWindowSwapChain(vk::PhysicalDevice physical_device,
 			wd.Frames[i].Backbuffer = backbuffers[i];
 	}
 
-	auto attachment_description = vk::AttachmentDescription()
-		.setFormat(wd.SurfaceFormat.format)
-		.setSamples(vk::SampleCountFlagBits::e1)
-		.setLoadOp(vk::AttachmentLoadOp::eClear)
-		.setStoreOp(vk::AttachmentStoreOp::eStore)
-		.setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
-		.setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
-		.setInitialLayout(vk::ImageLayout::eUndefined)
-		.setFinalLayout(vk::ImageLayout::ePresentSrcKHR);
-		
-	auto attachment_reference = vk::AttachmentReference()
-		.setAttachment(0)
-		.setLayout(vk::ImageLayout::eColorAttachmentOptimal);
-
-	auto subpass_description = vk::SubpassDescription()
-		.setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
-		.setColorAttachmentCount(1)
-		.setPColorAttachments(&attachment_reference);
-
-	auto subpass_dependency = vk::SubpassDependency()
-		.setSrcSubpass(VK_SUBPASS_EXTERNAL)
-		.setDstSubpass(0)
-		.setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
-		.setDstStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
-		.setSrcAccessMask(vk::AccessFlagBits::eNone)
-		.setDstAccessMask(vk::AccessFlagBits::eColorAttachmentWrite);
-
-	auto render_pass_create_info = vk::RenderPassCreateInfo()
-		.setAttachmentCount(1)
-		.setPAttachments(&attachment_description)
-		.setSubpassCount(1)
-		.setPSubpasses(&subpass_description)
-		.setDependencyCount(1)
-		.setPDependencies(&subpass_dependency);
-
-	g_RenderPass = device.createRenderPass(render_pass_create_info);
-		
 	for (auto& frame : wd.Frames)
 	{
 		auto image_view_component_mapping = vk::ComponentMapping()
@@ -1094,16 +1050,6 @@ void ImGui_ImplVulkanH_CreateWindowSwapChain(vk::PhysicalDevice physical_device,
 			.setImage(frame.Backbuffer);
 
 		frame.BackbufferView = device.createImageView(image_view_create_info);
-
-		auto framebuffer_create_info = vk::FramebufferCreateInfo()
-			.setRenderPass(*g_RenderPass)
-			.setAttachmentCount(1)
-			.setPAttachments(&*frame.BackbufferView)
-			.setWidth(wd.Width)
-			.setHeight(wd.Height)
-			.setLayers(1);
-
-		frame.Framebuffer = device.createFramebuffer(framebuffer_create_info);
 	}
 }
 
@@ -1112,6 +1058,14 @@ void ImGui_ImplVulkanH_CreateOrResizeWindow(vk::Instance instance, vk::PhysicalD
 {
 	ImGui_ImplVulkanH_CreateWindowSwapChain(physical_device, device, wd, width, height, min_image_count);
 	ImGui_ImplVulkanH_CreateWindowCommandBuffers(physical_device, device, wd, queue_family);
+
+	for (auto& frame : wd.Frames)
+	{
+		oneTimeSubmit(device, frame.CommandPool, g_Queue, [&](auto& cmd) {
+			SetImageLayout(cmd, frame.Backbuffer, vk::Format::eUndefined, vk::ImageLayout::eUndefined,
+				vk::ImageLayout::ePresentSrcKHR);
+		});
+	}
 }
 
 void ImGui_ImplVulkanH_DestroyWindow(vk::Instance instance, vk::Device device, ImGui_ImplVulkanH_Window& wd)
@@ -1125,4 +1079,81 @@ void ImGui_ImplVulkanH_DestroyWindowRenderBuffers(vk::Device device, ImGui_ImplV
 {
 	buffers.FrameRenderBuffers.clear();
 	buffers.Index = 0;
+}
+
+void SetImageLayout(vk::raii::CommandBuffer const& commandBuffer, vk::Image image,
+	vk::Format format, vk::ImageLayout oldImageLayout, vk::ImageLayout newImageLayout)
+{
+	vk::AccessFlags sourceAccessMask;
+	switch (oldImageLayout)
+	{
+	case vk::ImageLayout::eTransferDstOptimal: sourceAccessMask = vk::AccessFlagBits::eTransferWrite; break;
+	case vk::ImageLayout::ePreinitialized: sourceAccessMask = vk::AccessFlagBits::eHostWrite; break;
+	case vk::ImageLayout::eGeneral:  // sourceAccessMask is empty
+	case vk::ImageLayout::eUndefined: break;
+	default: assert(false); break;
+	}
+
+	vk::PipelineStageFlags sourceStage;
+	switch (oldImageLayout)
+	{
+	case vk::ImageLayout::eGeneral:
+	case vk::ImageLayout::ePreinitialized: sourceStage = vk::PipelineStageFlagBits::eHost; break;
+	case vk::ImageLayout::eTransferDstOptimal: sourceStage = vk::PipelineStageFlagBits::eTransfer; break;
+	case vk::ImageLayout::eUndefined: sourceStage = vk::PipelineStageFlagBits::eTopOfPipe; break;
+	default: assert(false); break;
+	}
+
+	vk::AccessFlags destinationAccessMask;
+	switch (newImageLayout)
+	{
+	case vk::ImageLayout::eColorAttachmentOptimal: destinationAccessMask = vk::AccessFlagBits::eColorAttachmentWrite; break;
+	case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+		destinationAccessMask = vk::AccessFlagBits::eDepthStencilAttachmentRead | vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+		break;
+	case vk::ImageLayout::eGeneral:  // empty destinationAccessMask
+	case vk::ImageLayout::ePresentSrcKHR: break;
+	case vk::ImageLayout::eShaderReadOnlyOptimal: destinationAccessMask = vk::AccessFlagBits::eShaderRead; break;
+	case vk::ImageLayout::eTransferSrcOptimal: destinationAccessMask = vk::AccessFlagBits::eTransferRead; break;
+	case vk::ImageLayout::eTransferDstOptimal: destinationAccessMask = vk::AccessFlagBits::eTransferWrite; break;
+	default: assert(false); break;
+	}
+
+	vk::PipelineStageFlags destinationStage;
+	switch (newImageLayout)
+	{
+	case vk::ImageLayout::eColorAttachmentOptimal: destinationStage = vk::PipelineStageFlagBits::eColorAttachmentOutput; break;
+	case vk::ImageLayout::eDepthStencilAttachmentOptimal: destinationStage = vk::PipelineStageFlagBits::eEarlyFragmentTests; break;
+	case vk::ImageLayout::eGeneral: destinationStage = vk::PipelineStageFlagBits::eHost; break;
+	case vk::ImageLayout::ePresentSrcKHR: destinationStage = vk::PipelineStageFlagBits::eBottomOfPipe; break;
+	case vk::ImageLayout::eShaderReadOnlyOptimal: destinationStage = vk::PipelineStageFlagBits::eFragmentShader; break;
+	case vk::ImageLayout::eTransferDstOptimal:
+	case vk::ImageLayout::eTransferSrcOptimal: destinationStage = vk::PipelineStageFlagBits::eTransfer; break;
+	default: assert(false); break;
+	}
+
+	vk::ImageAspectFlags aspectMask;
+	if (newImageLayout == vk::ImageLayout::eDepthStencilAttachmentOptimal)
+	{
+		aspectMask = vk::ImageAspectFlagBits::eDepth;
+		if (format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint)
+		{
+			aspectMask |= vk::ImageAspectFlagBits::eStencil;
+		}
+	}
+	else
+	{
+		aspectMask = vk::ImageAspectFlagBits::eColor;
+	}
+
+	vk::ImageSubresourceRange imageSubresourceRange(aspectMask, 0, 1, 0, 1);
+	vk::ImageMemoryBarrier    imageMemoryBarrier(sourceAccessMask,
+		destinationAccessMask,
+		oldImageLayout,
+		newImageLayout,
+		VK_QUEUE_FAMILY_IGNORED,
+		VK_QUEUE_FAMILY_IGNORED,
+		image,
+		imageSubresourceRange);
+	return commandBuffer.pipelineBarrier(sourceStage, destinationStage, {}, nullptr, nullptr, imageMemoryBarrier);
 }
