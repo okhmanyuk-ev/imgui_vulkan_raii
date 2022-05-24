@@ -255,15 +255,21 @@ static void ImGui_ImplVulkan_SetupRenderState(ImDrawData* draw_data, vk::Pipelin
 
 	command_buffer.setViewportWithCount({ viewport });
 
-	float scale[2];
-	scale[0] = 2.0f / draw_data->DisplaySize.x;
-	scale[1] = 2.0f / draw_data->DisplaySize.y;
-	(*command_buffer).pushConstants(*bd->PipelineLayout, vk::ShaderStageFlagBits::eVertex, sizeof(float) * 0, sizeof(float) * 2, scale);
-	
-	float translate[2];
-	translate[0] = -1.0f - draw_data->DisplayPos.x * scale[0];
-	translate[1] = -1.0f - draw_data->DisplayPos.y * scale[1];
-	(*command_buffer).pushConstants(*bd->PipelineLayout, vk::ShaderStageFlagBits::eVertex, sizeof(float) * 2, sizeof(float) * 2, translate);
+	struct PushConstants
+	{
+		float scale_x;
+		float scale_y;
+		float translate_x;
+		float translate_y;
+	};
+
+	auto push_constants = PushConstants();
+	push_constants.scale_x = 2.0f / draw_data->DisplaySize.x;
+	push_constants.scale_y = 2.0f / draw_data->DisplaySize.y;
+	push_constants.translate_x = -1.0f - draw_data->DisplayPos.x * push_constants.scale_x;
+	push_constants.translate_y = -1.0f - draw_data->DisplayPos.y * push_constants.scale_y;
+
+	command_buffer.pushConstants<PushConstants>(*bd->PipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, { push_constants });
 }
 
 void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, vk::raii::CommandBuffer& command_buffer)
@@ -658,6 +664,7 @@ static void ImGui_ImplVulkan_CreatePipeline(vk::raii::Device& device, const vk::
 		.setTopology(vk::PrimitiveTopology::eTriangleList);
 
 	auto pipeline_viewport_state_create_info = vk::PipelineViewportStateCreateInfo();
+
 	auto pipeline_rasterization_state_create_info = vk::PipelineRasterizationStateCreateInfo()
 		.setPolygonMode(vk::PolygonMode::eFill);
 	
